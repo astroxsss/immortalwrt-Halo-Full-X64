@@ -35,7 +35,7 @@ jobs:
 
       - name: 克隆 ImmortalWrt 稳定版
         run: |
-          git clone https://github.com/immortalwrt/immortalwrt -b openwrt-24.10
+          git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
@@ -43,28 +43,28 @@ jobs:
       - name: 添加插件源码
         run: |
           cd immortalwrt
-          git clone https://github.com/xiaorouji/openwrt-passwall package/passwall
-          git clone https://github.com/vernesong/OpenClash package/openclash
-          git clone https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
-          git clone https://github.com/fw876/helloworld package/helloworld
+          git clone --depth=1 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
+          git clone --depth=1 https://github.com/vernesong/OpenClash.git package/openclash
+          git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki.git package/nikki
+          git clone --depth=1 https://github.com/fw876/helloworld.git package/helloworld
 
       - name: Halox 品牌设置
         run: |
           cd immortalwrt
 
-          # 主路由IP
+          # 主路由 IP
           sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
 
-          # 默认语言中文
+          # 默认中文
           sed -i "s/option lang auto/option lang zh_cn/g" \
-          feeds/luci/modules/luci-base/root/etc/config/luci
+          feeds/luci/modules/luci-base/root/etc/config/luci || true
 
           # 系统名称
           sed -i 's/OpenWrt/Halox定制固件/g' package/base-files/files/bin/config_generate
 
           # 登录页标题
           sed -i 's/<title>.*<\/title>/<title>Halox定制固件 - 管理界面<\/title>/g' \
-          feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm
+          feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm || true
 
           # Argon 底部签名
           sed -i '/<%+footer%>/i\
@@ -72,7 +72,7 @@ jobs:
           © 2025 <a href="https://halox.pages.dev/" target="_blank">Halox</a> \
           | 微信：Chinchins\
           </div>' \
-          feeds/luci/themes/luci-theme-argon/luasrc/view/themes/argon/footer.htm
+          feeds/luci/themes/luci-theme-argon/luasrc/view/themes/argon/footer.htm || true
 
       - name: 配置编译
         run: |
