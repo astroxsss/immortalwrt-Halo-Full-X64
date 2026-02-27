@@ -1,4 +1,4 @@
-name: Build ImmortalWrt J1900 Full Turbo
+name: Build Halox 主路由完整版
 
 on:
   workflow_dispatch:
@@ -8,16 +8,16 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Free Disk Space
+      - name: 清理空间
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo docker image prune -a -f
 
-      - name: Checkout
+      - name: 拉取仓库
         uses: actions/checkout@v4
 
-      - name: Cache ccache
+      - name: 编译缓存
         uses: actions/cache@v4
         with:
           path: ~/.ccache
@@ -25,7 +25,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-ccache-
 
-      - name: Install Dependencies
+      - name: 安装依赖
         run: |
           sudo apt update
           sudo apt install -y build-essential clang flex bison g++ gawk \
@@ -33,47 +33,110 @@ jobs:
           libssl-dev python3 python3-distutils rsync unzip zlib1g-dev \
           file wget curl ccache
 
-      - name: Clone Source
+      - name: 克隆 ImmortalWrt 稳定版
         run: |
-          git config --global http.lowSpeedLimit 0
-          git config --global http.lowSpeedTime 999999
           git clone https://github.com/immortalwrt/immortalwrt -b openwrt-24.10
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Modify Default LAN IP
+      - name: 添加插件源码
         run: |
           cd immortalwrt
+          git clone https://github.com/xiaorouji/openwrt-passwall package/passwall
+          git clone https://github.com/vernesong/OpenClash package/openclash
+          git clone https://github.com/nikkinikki-org/OpenWrt-nikki package/nikki
+          git clone https://github.com/fw876/helloworld package/helloworld
+
+      - name: Halox 品牌设置
+        run: |
+          cd immortalwrt
+
+          # 主路由IP
           sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
 
-      - name: Configure Build
+          # 默认语言中文
+          sed -i "s/option lang auto/option lang zh_cn/g" \
+          feeds/luci/modules/luci-base/root/etc/config/luci
+
+          # 系统名称
+          sed -i 's/OpenWrt/Halox定制固件/g' package/base-files/files/bin/config_generate
+
+          # 登录页标题
+          sed -i 's/<title>.*<\/title>/<title>Halox定制固件 - 管理界面<\/title>/g' \
+          feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm
+
+          # Argon 底部签名
+          sed -i '/<%+footer%>/i\
+          <div style="text-align:center;padding:10px;font-size:12px;">\
+          © 2025 <a href="https://halox.pages.dev/" target="_blank">Halox</a> \
+          | 微信：Chinchins\
+          </div>' \
+          feeds/luci/themes/luci-theme-argon/luasrc/view/themes/argon/footer.htm
+
+      - name: 配置编译
         run: |
           cd immortalwrt
           echo "CONFIG_TARGET_x86=y" >> .config
           echo "CONFIG_TARGET_x86_64=y" >> .config
           echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
           echo "CONFIG_PACKAGE_luci=y" >> .config
+
+          # 中文语言包
+          echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-passwall-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-openclash-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-nikki-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-adbyby-plus-zh-cn=y" >> .config
+          echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config
+
+          # Argon
+          echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-argon-config=y" >> .config
+
+          # 科学插件
+          echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
+
+          # 广告插件
+          echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y" >> .config
+          echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+          echo "CONFIG_PACKAGE_adguardhome=y" >> .config
+
+          # 终端
+          echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+
+          # Docker
           echo "CONFIG_PACKAGE_luci-app-docker=y" >> .config
           echo "CONFIG_PACKAGE_docker=y" >> .config
           echo "CONFIG_PACKAGE_dockerd=y" >> .config
           echo "CONFIG_PACKAGE_containerd=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
+
           echo "CONFIG_CCACHE=y" >> .config
           make defconfig
 
-      - name: Download Packages
+      - name: 下载依赖
         run: |
           cd immortalwrt
           make download -j$(nproc)
 
-      - name: Compile
+      - name: 编译固件
         run: |
           cd immortalwrt
           make -j$(nproc)
 
-      - name: Upload Firmware
+      - name: 重命名固件
+        run: |
+          cd immortalwrt/bin/targets/x86/64/
+          for f in *.img.gz; do
+            mv "$f" "Halox-主路由完整版-$f"
+          done
+
+      - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-j1900
+          name: Halox-主路由完整版
           path: immortalwrt/bin/targets/x86/64/
