@@ -1,4 +1,4 @@
-name: Build Halox 主路由完整版（全中文·API下载插件）
+name: Build Halox 主路由完整版（全中文·自动识别分支）
 
 on:
   workflow_dispatch:
@@ -40,80 +40,77 @@ jobs:
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -e
-          git config --global http.lowSpeedLimit 0
-          git config --global http.lowSpeedTime 999999
           git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 添加插件源码（GitHub API + Token，稳定）
+      - name: 添加插件源码（API + 自动默认分支）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
           cd immortalwrt
 
-          fetch_api_tar() {
-            name="$1"
-            repo="$2"   # owner/repo
-            ref="$3"    # branch/tag/sha
-            dest="$4"
-            url="https://api.github.com/repos/${repo}/tarball/${ref}"
+          get_default_branch() {
+            repo="$1" # owner/repo
+            curl -sL -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${repo}" | jq -r '.default_branch'
+          }
 
-            echo "==> Fetch $name from $url"
+          fetch_api_tar_default() {
+            name="$1"
+            repo="$2"
+            dest="$3"
+
+            branch="$(get_default_branch "$repo")"
+            if [ -z "$branch" ] || [ "$branch" = "null" ]; then
+              echo "!! cannot get default branch for $repo"
+              exit 1
+            fi
+
+            url="https://api.github.com/repos/${repo}/tarball/${branch}"
+            echo "==> Fetch $name (${repo}@${branch})"
+
             rm -rf "$dest"
             mkdir -p "$dest"
 
             for i in 1 2 3; do
-              echo "   attempt $i"
               rm -f /tmp/pkg.tgz
-
-              # 用 token 拉，避免返回小错误页
               curl -L --retry 5 --retry-delay 2 --connect-timeout 20 \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
                 -o /tmp/pkg.tgz "$url" || true
 
-              # 校验是不是gzip（避免 14 bytes）
               if file /tmp/pkg.tgz | grep -qi 'gzip compressed'; then
                 tar -xzf /tmp/pkg.tgz -C "$dest" --strip-components=1
                 return 0
               else
-                echo "   download not gzip, head:"
+                echo "not gzip, head:"
                 head -c 200 /tmp/pkg.tgz || true
               fi
               sleep 3
             done
 
             echo "!! Failed to fetch $name"
-            return 1
+            exit 1
           }
 
-          fetch_api_tar "passwall"  "xiaorouji/openwrt-passwall"   "master" "package/passwall"
-          fetch_api_tar "openclash" "vernesong/OpenClash"          "master" "package/openclash"
-          fetch_api_tar "nikki"     "nikkinikki-org/OpenWrt-nikki" "master" "package/nikki"
-          fetch_api_tar "helloworld" "fw876/helloworld"            "master" "package/helloworld"
+          fetch_api_tar_default "passwall"  "xiaorouji/openwrt-passwall"   "package/passwall"
+          fetch_api_tar_default "openclash" "vernesong/OpenClash"          "package/openclash"
+          fetch_api_tar_default "nikki"     "nikkinikki-org/OpenWrt-nikki" "package/nikki"
+          fetch_api_tar_default "helloworld" "fw876/helloworld"            "package/helloworld"
 
       - name: Halox 品牌设置（全中文）
         run: |
           cd immortalwrt
-
-          # 主路由IP：192.168.2.1
           sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
-
-          # 默认中文
           sed -i "s/option lang auto/option lang zh_cn/g" \
             feeds/luci/modules/luci-base/root/etc/config/luci || true
-
-          # 系统名称：Halox定制固件
           sed -i 's/OpenWrt/Halox定制固件/g' package/base-files/files/bin/config_generate
-
-          # 登录页标题
           sed -i 's/<title>.*<\/title>/<title>Halox定制固件 - 管理界面<\/title>/g' \
             feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm || true
-
-          # Argon 底部签名（超链接）
           sed -i '/<%+footer%>/i\
           <div style="text-align:center;padding:10px;font-size:12px;">\
           © 2025 <a href="https://halox.pages.dev/" target="_blank">Halox</a> | 微信：Chinchins\
@@ -123,14 +120,11 @@ jobs:
       - name: 配置编译（全中文 + 全套插件）
         run: |
           cd immortalwrt
-
           echo "CONFIG_TARGET_x86=y" >> .config
           echo "CONFIG_TARGET_x86_64=y" >> .config
           echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
-
           echo "CONFIG_PACKAGE_luci=y" >> .config
 
-          # 中文语言包（基础 + 插件）
           echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y" >> .config
@@ -140,24 +134,19 @@ jobs:
           echo "CONFIG_PACKAGE_luci-i18n-adbyby-plus-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-adguardhome-zh-cn=y" >> .config
 
-          # Argon
           echo "CONFIG_PACKAGE_luci-theme-argon=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-argon-config=y" >> .config
 
-          # 科学插件
           echo "CONFIG_PACKAGE_luci-app-passwall=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-openclash=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-nikki=y" >> .config
 
-          # 广告插件
           echo "CONFIG_PACKAGE_luci-app-adbyby-plus=y" >> .config
           echo "CONFIG_PACKAGE_luci-app-adguardhome=y" >> .config
           echo "CONFIG_PACKAGE_adguardhome=y" >> .config
 
-          # 终端
           echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
 
-          # Docker
           echo "CONFIG_PACKAGE_luci-app-docker=y" >> .config
           echo "CONFIG_PACKAGE_docker=y" >> .config
           echo "CONFIG_PACKAGE_dockerd=y" >> .config
@@ -176,7 +165,7 @@ jobs:
           cd immortalwrt
           make -j$(nproc)
 
-      - name: 重命名固件（安全方式）
+      - name: 重命名固件
         run: |
           cd immortalwrt/bin/targets/x86/64/
           for f in *.img.gz; do
