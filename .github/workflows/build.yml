@@ -1,4 +1,4 @@
-name: Build Halox 主路由完整版（全中文·修复Git认证）
+name: Build Halox 主路由完整版（全中文·终极修复Git用户名）
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
       - name: 拉取仓库
         uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          persist-credentials: false
 
       - name: 编译缓存
         uses: actions/cache@v4
@@ -35,18 +35,24 @@ jobs:
           libssl-dev python3 python3-distutils rsync unzip zlib1g-dev \
           file wget curl ccache
 
-      - name: 修复 GitHub 认证残留（关键）
+      - name: 彻底清理 GitHub 认证残留（关键）
         run: |
-          # 清掉 actions/checkout 注入的 github extraheader，否则后续 clone 公共仓库会要用户名
+          # 禁用 askpass，避免 git 试图交互拿用户名密码
+          echo "GIT_TERMINAL_PROMPT=0" >> $GITHUB_ENV
+          echo "GIT_ASKPASS=" >> $GITHUB_ENV
+          echo "SSH_ASKPASS=" >> $GITHUB_ENV
+
+          # 清理 system/global/local 里可能残留的 github extraheader
+          sudo git config --system --unset-all http.https://github.com/.extraheader || true
+          sudo git config --system --unset-all http.https://github.com/.extraheader || true
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --global --unset-all http.https://github.com/.extraheader || true
+          git config --global --unset-all http.extraheader || true
+          git config --global --unset-all http.extraHeader || true
           git config --global credential.helper "" || true
           git config --global --add safe.directory "*" || true
 
-          # 防止 git 试图弹交互
-          echo "GIT_TERMINAL_PROMPT=0" >> $GITHUB_ENV
-
-      - name: 克隆 ImmortalWrt 稳定版
+      - name: 克隆 ImmortalWrt 稳定版（无认证头 + 重试）
         env:
           GIT_TERMINAL_PROMPT: "0"
         run: |
@@ -54,27 +60,35 @@ jobs:
           git config --global http.lowSpeedLimit 0
           git config --global http.lowSpeedTime 999999
 
-          for i in 1 2 3; do
-            echo "==> Clone immortalwrt attempt $i"
-            rm -rf immortalwrt
-            git clone --depth=1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git && break
-            sleep 5
-          done
+          clone_retry() {
+            repo="$1"
+            dir="$2"
+            branch="$3"
+            for i in 1 2 3; do
+              echo "==> Clone $repo attempt $i"
+              rm -rf "$dir"
+              # 强制本次 clone 不带任何 github extraheader，也不走 credential helper
+              git -c credential.helper= \
+                  -c http.extraHeader= \
+                  -c http.extraheader= \
+                  -c http.https://github.com/.extraheader= \
+                  clone --depth=1 ${branch:+-b "$branch"} "$repo" "$dir" && return 0
+              sleep 5
+            done
+            return 1
+          }
 
+          clone_retry https://github.com/immortalwrt/immortalwrt.git immortalwrt openwrt-24.10
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 添加插件源码（稳定重试·不再要用户名）
+      - name: 添加插件源码（终极不再要用户名）
         env:
           GIT_TERMINAL_PROMPT: "0"
         run: |
           set -e
           cd immortalwrt
-
-          # 再清一次 extraheader（保险）
-          git config --global --unset-all http.https://github.com/.extraheader || true
-          git config --global credential.helper "" || true
 
           clone_retry() {
             repo="$1"
@@ -82,7 +96,11 @@ jobs:
             for i in 1 2 3; do
               echo "==> Clone $repo attempt $i"
               rm -rf "$dir"
-              git clone --depth=1 "$repo" "$dir" && return 0
+              git -c credential.helper= \
+                  -c http.extraHeader= \
+                  -c http.extraheader= \
+                  -c http.https://github.com/.extraheader= \
+                  clone --depth=1 "$repo" "$dir" && return 0
               sleep 5
             done
             return 1
