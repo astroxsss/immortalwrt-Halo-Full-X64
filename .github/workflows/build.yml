@@ -1,4 +1,4 @@
-name: Build Halox 主路由完整版
+name: Build Halox 主路由完整版（全中文）
 
 on:
   workflow_dispatch:
@@ -16,6 +16,8 @@ jobs:
 
       - name: 拉取仓库
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: 编译缓存
         uses: actions/cache@v4
@@ -34,55 +36,67 @@ jobs:
           file wget curl ccache
 
       - name: 克隆 ImmortalWrt 稳定版
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # 强制所有 https://github.com/ 克隆都自动带 token，避免 Username 报错
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
           git clone --depth=1 https://github.com/immortalwrt/immortalwrt.git -b openwrt-24.10
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: 添加插件源码
+      - name: 添加插件源码（修复 GitHub 认证）
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd immortalwrt
+          # 同样确保本 step 里也生效
+          git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
           git clone --depth=1 https://github.com/xiaorouji/openwrt-passwall.git package/passwall
           git clone --depth=1 https://github.com/vernesong/OpenClash.git package/openclash
           git clone --depth=1 https://github.com/nikkinikki-org/OpenWrt-nikki.git package/nikki
           git clone --depth=1 https://github.com/fw876/helloworld.git package/helloworld
 
-      - name: Halox 品牌设置
+      - name: Halox 品牌设置（全中文）
         run: |
           cd immortalwrt
 
-          # 主路由 IP
+          # 主路由 IP：192.168.2.1
           sed -i 's/192.168.1.1/192.168.2.1/g' package/base-files/files/bin/config_generate
 
           # 默认中文
           sed -i "s/option lang auto/option lang zh_cn/g" \
-          feeds/luci/modules/luci-base/root/etc/config/luci || true
+            feeds/luci/modules/luci-base/root/etc/config/luci || true
 
-          # 系统名称
+          # 系统名称：Halox定制固件
           sed -i 's/OpenWrt/Halox定制固件/g' package/base-files/files/bin/config_generate
 
-          # 登录页标题
+          # 登录页标题（中文）
           sed -i 's/<title>.*<\/title>/<title>Halox定制固件 - 管理界面<\/title>/g' \
-          feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm || true
+            feeds/luci/modules/luci-base/root/usr/lib/lua/luci/view/sysauth.htm || true
 
-          # Argon 底部签名
+          # Argon 底部签名 + 超链接
           sed -i '/<%+footer%>/i\
           <div style="text-align:center;padding:10px;font-size:12px;">\
-          © 2025 <a href="https://halox.pages.dev/" target="_blank">Halox</a> \
-          | 微信：Chinchins\
+          © 2025 <a href="https://halox.pages.dev/" target="_blank">Halox</a> | 微信：Chinchins\
           </div>' \
-          feeds/luci/themes/luci-theme-argon/luasrc/view/themes/argon/footer.htm || true
+            feeds/luci/themes/luci-theme-argon/luasrc/view/themes/argon/footer.htm || true
 
-      - name: 配置编译
+      - name: 配置编译（全中文 + 全套插件）
         run: |
           cd immortalwrt
+
           echo "CONFIG_TARGET_x86=y" >> .config
           echo "CONFIG_TARGET_x86_64=y" >> .config
           echo "CONFIG_TARGET_x86_64_DEVICE_generic=y" >> .config
+
+          # LuCI
           echo "CONFIG_PACKAGE_luci=y" >> .config
 
-          # 中文语言包
+          # 中文语言包（基础 + 插件）
           echo "CONFIG_PACKAGE_luci-i18n-base-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-firewall-zh-cn=y" >> .config
           echo "CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y" >> .config
@@ -115,7 +129,9 @@ jobs:
           echo "CONFIG_PACKAGE_dockerd=y" >> .config
           echo "CONFIG_PACKAGE_containerd=y" >> .config
 
+          # ccache
           echo "CONFIG_CCACHE=y" >> .config
+
           make defconfig
 
       - name: 下载依赖
@@ -128,7 +144,7 @@ jobs:
           cd immortalwrt
           make -j$(nproc)
 
-      - name: 重命名固件
+      - name: 重命名固件（安全方式）
         run: |
           cd immortalwrt/bin/targets/x86/64/
           for f in *.img.gz; do
